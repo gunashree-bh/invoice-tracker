@@ -1,7 +1,6 @@
 from flask import Flask, render_template, request, jsonify
 from datetime import date, datetime
 import mysql.connector
-
 app = Flask(__name__)
 
 # ----------------- Database Connection -----------------
@@ -148,6 +147,13 @@ def top_customers():
     for r in result:
         r['outstanding'] = float(r['outstanding']) if r['outstanding'] else 0
     return jsonify(result)
+
+@app.route('/health')
+def health():
+    return jsonify({
+        "status": "ok",
+        "timestamp": "2025-08-25T12:34:56Z"
+    })
 
 # ----------------- Run App -----------------
 if __name__ == "__main__":
