@@ -1,15 +1,27 @@
 from flask import Flask, render_template, request, jsonify
 from datetime import date, datetime
 import mysql.connector
+import os
+from urllib.parse import urlparse
+
 app = Flask(__name__)
 
 # ----------------- Database Connection -----------------
 def get_db_connection():
+    db_url = os.environ.get("DATABASE_URL")
+
+    if not db_url:
+        raise Exception("DATABASE_URL environment variable not set!")
+
+    # Example: mysql+pymysql://root:password@host:3306/dbname
+    url = urlparse(db_url)
+
     conn = mysql.connector.connect(
-        host="localhost",
-        user="root",
-        password="Gagu@1529",
-        database="invoice_db"
+        host=url.hostname,
+        user=url.username,
+        password=url.password,
+        database=url.path.lstrip("/"),
+        port=url.port or 3306
     )
     return conn
 
@@ -28,7 +40,6 @@ def compute_aging_bucket(due_date, today):
         return "90+"
 
 # ----------------- Routes -----------------
-
 @app.route("/")
 def home():
     return "Invoice Tracker API is running! Go to /dashboard to see the dashboard."
@@ -39,7 +50,6 @@ def dashboard():
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True, buffered=True)
 
-    # Fetch customers
     cursor.execute("SELECT customer_id, name FROM customers")
     customers = cursor.fetchall()
 
@@ -62,7 +72,6 @@ def get_invoices():
     """)
     invoices = cursor.fetchall()
 
-    # Fetch payments per invoice
     for invoice in invoices:
         cursor.execute("SELECT SUM(amount) AS total_paid FROM payments WHERE invoice_id=%s", (invoice['invoice_id'],))
         res = cursor.fetchone()
@@ -108,8 +117,11 @@ def kpis():
 
     total_outstanding = total_invoiced - total_received
 
-    cursor.execute("SELECT due_date, SUM(amount - IFNULL((SELECT SUM(p.amount) FROM payments p WHERE p.invoice_id=i.invoice_id),0)) AS outstanding \
-                    FROM invoices i GROUP BY i.invoice_id")
+    cursor.execute("""
+        SELECT due_date,
+               SUM(amount - IFNULL((SELECT SUM(p.amount) FROM payments p WHERE p.invoice_id=i.invoice_id),0)) AS outstanding
+        FROM invoices i GROUP BY i.invoice_id
+    """)
     overdue_rows = cursor.fetchall()
     overdue_count = sum(1 for row in overdue_rows if row['outstanding'] > 0 and row['due_date'] < date.today())
     percent_overdue = round((overdue_count / len(overdue_rows) * 100), 2) if overdue_rows else 0
@@ -143,7 +155,6 @@ def top_customers():
     cursor.close()
     conn.close()
 
-    # Ensure numeric conversion
     for r in result:
         r['outstanding'] = float(r['outstanding']) if r['outstanding'] else 0
     return jsonify(result)
@@ -152,9 +163,9 @@ def top_customers():
 def health():
     return jsonify({
         "status": "ok",
-        "timestamp": "2025-08-25T12:34:56Z"
+        "timestamp": datetime.utcnow().isoformat() + "Z"
     })
 
 # ----------------- Run App -----------------
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=True)
